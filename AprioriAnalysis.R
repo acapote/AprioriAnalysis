@@ -1,0 +1,112 @@
+#package installation
+install.packages("arules")
+install.packages("tidyverse")
+install.packages("plyr", dependencies= TRUE)
+
+library(arules)
+library(tidyr)
+library(plyr)
+library(dplyr)
+
+
+
+#opening file and getting familiar with data
+df_logs<-read.delim("output.txt", stringsAsFactor=FALSE, header=FALSE, col.names=c("IP", "null1", "null2", "datetime", "null3", "uri", "null4", "null5", "null6", "null7", "userAgent"), colClasses=c("character", "NULL", "NULL", "character", "NULL", "character", "NULL", "NULL", "NULL", "NULL", "character"))
+head(df_logs)
+class(df_logs)
+str(df_logs)
+dim(df_logs)
+
+#data cleaning
+df_logs$datetime<-sub(pattern=":", replacement=";", x=df_logs$datetime)
+
+df_logs<-separate(df_logs, datetime, c("date", "time"), sep=";")
+
+df_logs$date<-gsub("[^[:alnum:][:blank:]/:;]", "", df_logs$date)
+
+df_logs$uri<-gsub(pattern="GET | HTTP/1.1| HTTP/1.0", replacement="", x=df_logs$uri)
+
+lct <- Sys.getlocale("LC_TIME"); Sys.setlocale("LC_TIME", "C")
+#converting 'date' column to date type
+df_logs$date<-as.Date(df_logs$date, "%d/%b/%Y")
+
+#deleting rows containing string "bot" and "Bot"
+df_logs<-df_logs[!grepl("bot", df_logs$userAgent),]
+df_logs<-df_logs[!grepl("Bot", df_logs$userAgent),]
+
+#merging columns IP and userAgent to find unique users
+df_logs<-unite(df_logs, IP_userAgent, IP, userAgent)
+#usunięcie kolumny 'date', gdyż nie będzie potrzebna do analizy
+df_logs$time<-NULL
+
+#extracting rows containg one of the urls from the list
+vec<-c("/dla-poczatkujacych/zakladanie-firmy/139-zakladanie-firmy-krok-po-kroku", "/dla-poczatkujacych/zakladanie-firmy/135-korzysci-i-koszty-prowadzenia-firmy", "/dla-poczatkujacych/zakladanie-firmy/145-wybor-opodatkowania-porownanie", "/150-kiedy-warto-zostac-vatovcem", "/151-oplacanie-zus-u-preferencyjny", "/146-polska-klasyfikacja-dzialalnosci-pkd-2007", "/oferty-dla-firm/porady-prawne-przez-internet-e-prawnik", "/dla-poczatkujacych/zakladanie-firmy/430-terminarz-przedsi%C4%99biorcy", "/dla-poczatkujacych/jak-wypelnic-druk/463-ceidg-1", "/dla-poczatkujacych/jak-wypelnic-druk/446-vat-r", "/dla-poczatkujacych/jak-wypelnic-druk/442-jak-wypelnic-zus-zua", "/dla-poczatkujacych/jak-wypelnic-druk/jak-wypelnic-zus-zza", "/dla-poczatkujacych/jak-wypelnic-druk/zus-zcna", "/dla-poczatkujacych/jak-wypelnic-druk/592-jak-wype%C5%82ni%C4%87-formularz-zus-zua-papierowy", "/dla-poczatkujacych/jak-wypelnic-druk/593-jak-wype%C5%82ni%C4%87-formularz-zus-zza-papierowy", "/dla-poczatkujacych/jak-wypelnic-druk/635-jak-wype%C5%82ni%C4%87-formularz-zus-zcna-papierowy", "/oferty-dla-firm/ksiegowosc-internetowa/148-korzysci-i-wady-ksiegowosci-internetowej", "/oferty-dla-firm/ksiegowosc-internetowa/147-porownanie-ofert-ksiegowosci-internetowej", "/oferty-dla-firm/579-firmowa-strona-internetowa-%E2%80%93-powierz-profesjonalistom", "/oferty-dla-firm/serwer-dla-firmy-hosting-domena-www-propozycja", "/oferty-dla-firm/542-narz%C4%99dzia-do-przeprowadzania-kampanii-mailowych", "/pliki-do-pobrania", "/ranking-kont-firmowych", "/porady/twoj-pomysl/437-zaprojektuj-swoj%C4%85-firm%C4%99", "/porady/twoj-pomysl/442-jak-sfinansowa%C4%87-swoj%C4%85-firm%C4%99", "/informacje-i-porady-dla-przedsiebiorcow/443-franczyza-pomysl-na-biznes", "/informacje-i-porady-dla-przedsiebiorcow/106-firma-calkowicie-on-line", "/porady/twoj-pomysl/577-promocja-sklepu-internetowego-%E2%80%93-4-sprawdzone-sposoby", "/porady/pracownicy/464-rekrutuj-skutecznie", "/informacje-i-porady-dla-przedsiebiorcow/prowadzenie-firmy/441-umowa-o-dzieo-zlecenie", "/porady/pracownicy/511-umowa-o-prac%C4%99-%E2%80%93-wymagania-i-czas-trwania", "/porady/pracownicy/512-obowi%C4%85zki-pracodawcy-%E2%80%93-zus,-bhp-i-badania-lekarskie", "/porady/pracownicy/513-akta-osobowe-pracownika", "/porady/pracownicy/530-efektywne-zarz%C4%85dzanie-zespo%C5%82em", "/porady/pracownicy/372-korzy%C5%9Bci-z-zatrudnienia-niepe%C5%82nosprawnego-pracownika", "/porady/pracownicy/522-jak-zwalnia%C4%87-pracownik%C3%B3w", "/porady/pracownicy/521-mo%C5%BCliwo%C5%9Bci-wypowiedzenia-umowy-zlecenia-2", "/porady/kontrahenci/539-kiedy-nie-ufa%C4%87-kontrahentowi", "/porady/kontrahenci/453-jak-sprawdzi%C4%87-wiarygodno%C5%9B%C4%87-firmy", "/porady/kontrahenci/485-negocjowanie-i-podpisywanie-um%C3%B3w", "/porady/kontrahenci/492-odzyskiwanie-zaleg%C5%82ych-nale%C5%BCno%C5%9Bci", "/porady/prawo/508-jednolity-plik-kontrolny-%E2%80%93-co-musisz-wiedzie%C4%87", "/porady/prawo/475-czynny-%C5%BCal-%E2%80%93-warto-korzysta%C4%87", "/porady/prawo/510-podr%C3%B3%C5%BCe-s%C5%82u%C5%BCbowe-jako-koszty-uzyskania-przychodu", "/porady/prawo/478-wszystko-o-kasach-fiskalnych", "/porady/prawo/571-amortyzacja-%C5%9Brodk%C3%B3w-trwa%C5%82ych", "/porady/prawo/517-karta-podatkowa-i-rycza%C5%82t-%E2%80%93-najprostsze-metody-rozlicze%C5%84-podatkowych", "/porady/prawo/501-w-internecie-zgodnie-z-prawem", "/porady/prawo/468-utrata-i-wyga%C5%9Bni%C4%99cie-koncesji-%E2%80%93-czym-si%C4%99-r%C3%B3%C5%BCni%C4%85", "/porady/prawo/531-jak-zawiesi%C4%87-dzia%C5%82alno%C5%9B%C4%87", "/porady/prawo/541-rozliczenia-vat-w-unii-europejskiej", "/informacje-i-porady-dla-przedsiebiorcow/prowadzenie-firmy/153-publiczne-odtwarzanie-utworow-muzycznych-i-video")
+#stworzenie ramki danych zawierającej tylko wiersze, które w kolumnie "uri" zawierają jeden z adresów zadeklarowanych w wektorze
+df_logs_subset<-subset(df_logs, uri %in% vec)
+
+#converting urls to symbols for clarity
+SymbolTable<-read.table("adresy_odpowiedniki.txt", header=TRUE, stringsAsFactors=FALSE)
+nrSymbolTable<-nrow(SymbolTable)
+
+for(iSymbol in 1:nrSymbolTable){
+  i<-df_logs_subset$uri==SymbolTable[iSymbol, 1]
+  df_logs_subset$uri[i]<-SymbolTable[iSymbol, 2]
+}
+head(df_logs_subset)
+
+
+#sorting according to unique users
+df_logs_sorted<-df_logs_subset[order(df_logs_subset$IP_userAgent),]
+
+#ddply - converting data frame to basket format
+df_logs_websiteList<-ddply(df_logs_subset, c("IP_userAgent", "date"), function(df1)paste(df1$uri, collapse=","))
+df_logs_websiteList$IP_userAgent<-NULL
+df_logs_websiteList$date<-NULL
+colnames(df_logs_websiteList)<-c("WebsiteList")
+
+#saving results to a file 
+write.csv(df_logs_websiteList, "WebsiteList.csv", quote=FALSE, row.names=TRUE)
+
+#reading transactions
+txn = read.transactions(file="WebsiteList.csv", rm.duplicates= TRUE, format="basket",sep=",",cols=1)
+
+txn@itemInfo$labels <- gsub("\"","",txn@itemInfo$labels)
+logs_rules <- apriori(txn,parameter = list(sup = 0.01, conf = 0.5,target="rules"))
+inspect(logs_rules)
+logs_rules <- apriori(txn,parameter = list(sup = 0.001, conf = 0.5,target="rules", minlen=4))
+logs_rules <- apriori(txn,parameter = list(sup = 0.0001, conf = 0.4,target="rules", maxlen=2, minlen=2))
+inspect(logs_rules)
+inspect(head(sort(logs_rules,by="lift"),n=100))
+
+#changing class 'rules' to 'data frame'
+df_logs_rules = data.frame(
+  lhs = labels(lhs(logs_rules)),
+  rhs = labels(rhs(logs_rules)), 
+  logs_rules@quality)
+head(df_logs_rules)
+#sorting according to 'lift' 
+inspect(head(sort(rules,by="lift"),n=20))
+
+
+#sorting by most frequent
+head(df_logs_rules[order(-df_logs_rules$count),])
+
+#sorting by alphabetical order by lhs
+df_logs_rules[order(df_logs_rules$lhs), ]
+
+
+#sorting by lhs and lift
+df_sorted<-df_logs_rules[order(df_logs_rules$lhs, -df_logs_rules$lift),]
+
+
+#data visualization
+install.packages("arulesViz")
+library(arulesViz)
+plot(logs_rules, method = NULL, measure = "support", shading = "lift", engine = "default", data = NULL, control = NULL)
+
+#writing association rules to a file
+write(logs_rules,
+      file = "association_rules.csv",
+      sep = ",",
+      quote = TRUE,
+      row.names = FALSE)
